@@ -1,12 +1,17 @@
 package io.github.merchantprotocol.trueup;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import io.github.merchantprotocol.trueup.Models.ReconcileOptions;
+import io.github.merchantprotocol.trueup.Models.RunDetail;
+import io.github.merchantprotocol.trueup.Models.RunPage;
+import io.github.merchantprotocol.trueup.Models.StoredFile;
 import io.github.merchantprotocol.trueup.Models.ReconcileResult;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -19,7 +24,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Integration tests against the live TrueUp API. Need TRUEUP_API_KEY (and optionally TRUEUP_BASE_URL).
- * Each full run uses 2 analyses. Run in Docker: `just test` (or `docker compose run --rm test`).
+ * Each full run uses 4 analyses. Run in Docker: `just test` (or `docker compose run --rm test`).
  */
 class ApiTest {
     private static final Path FIXTURES = Path.of("src/test/resources/fixtures");
@@ -89,5 +94,46 @@ class ApiTest {
             () -> TrueUp.builder().build().reconcile(Table.file(FIXTURES.resolve("statement.csv")), Table.content("scan.pdf", "%PDF-1.4")));
         assertEquals(422, bad.getStatus());
         assertEquals("unsupported_file", bad.getCode());
+    }
+
+    @Test
+    void storedFilesRunsAndModels() throws IOException {
+        assumeTrue(live(), "needs TRUEUP_API_KEY");
+        TrueUp tu = TrueUp.builder().build();
+        List<StoredFile> files = tu.uploadFiles(Table.file(FIXTURES.resolve("statement.csv")), Table.file(FIXTURES.resolve("receiving.csv")));
+        StoredFile statement = files.get(0);
+        StoredFile receiving = files.get(1);
+        try {
+            assertEquals(8, statement.rows);
+            assertEquals("number", statement.roles.get("Qty"));
+            assertEquals("receiving.csv", tu.getFile(receiving.id).name);
+            assertTrue(tu.listFiles().stream().anyMatch(f -> f.id.equals(statement.id)));
+            assertArrayEquals(Files.readAllBytes(FIXTURES.resolve("statement.csv")), tu.fileContent(statement.id));
+
+            ReconcileResult result = tu.reconcileStored(statement.id, receiving.id);
+            assertEquals(7, result.stats.get("paired"));
+            assertTrue(result.run_id.startsWith("run_"));
+            RunDetail run = tu.getRun(result.run_id);
+            assertEquals("done", run.run.status);
+            assertEquals(7, run.result.stats.get("paired"));
+            RunPage page = tu.listRuns(1, null);
+            assertEquals(1, page.runs.size());
+            assertTrue(page.has_more);
+            assertNotEquals(page.runs.get(0).id, tu.listRuns(1, page.runs.get(0).id).runs.get(0).id);
+
+            String modelId = tu.createModel(result.run_id, "sdk test");
+            try {
+                assertEquals("trueup.match-weights", tu.getModel(modelId).weights.get("format").getAsString());
+                ReconcileResult again = tu.reconcileStored(List.of(statement.id, receiving.id), modelId, null);
+                assertFalse(again.details.model.get("learned").getAsBoolean());
+            } finally {
+                tu.deleteModel(modelId);
+            }
+            assertThrows(TrueUpException.NotFoundException.class, () -> tu.getModel(modelId));
+        } finally {
+            tu.deleteFile(statement.id);
+            tu.deleteFile(receiving.id);
+        }
+        assertThrows(TrueUpException.NotFoundException.class, () -> tu.getFile(statement.id));
     }
 }

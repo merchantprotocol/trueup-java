@@ -6,6 +6,11 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import io.github.merchantprotocol.trueup.Models.Account;
+import io.github.merchantprotocol.trueup.Models.Answers;
+import io.github.merchantprotocol.trueup.Models.Model;
+import io.github.merchantprotocol.trueup.Models.RunDetail;
+import io.github.merchantprotocol.trueup.Models.RunPage;
+import io.github.merchantprotocol.trueup.Models.StoredFile;
 import io.github.merchantprotocol.trueup.Models.Plan;
 import io.github.merchantprotocol.trueup.Models.ReconcileOptions;
 import io.github.merchantprotocol.trueup.Models.ReconcileResult;
@@ -13,6 +18,7 @@ import io.github.merchantprotocol.trueup.Models.Usage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -23,6 +29,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * TrueUp API client. Thread-safe.
@@ -142,9 +149,122 @@ public final class TrueUp {
         return upload(fields, files, options != null ? options : new ReconcileOptions());
     }
 
+    // ---------------------------------------------------------------- stored files, runs, saved models
+
+    /** Upload one or more files to the team. Each comes back with its id, rows, columns and roles. */
+    public List<StoredFile> uploadFiles(Table... files) {
+        if (files.length == 0) throw new TrueUpException.InvalidRequestException("Pass at least one file to upload.", 0, "invalid_request", null);
+        List<String> fields = new ArrayList<>();
+        for (int i = 0; i < files.length; i++) fields.add("file");
+        String json = new String(multipart("/v1/files", fields, List.of(files), new ReconcileOptions()), StandardCharsets.UTF_8);
+        return list(json, "files", StoredFile.class);
+    }
+
+    /** The team's stored files. */
+    public List<StoredFile> listFiles() {
+        return list(request("GET", "/v1/files", null, null), "files", StoredFile.class);
+    }
+
+    public StoredFile getFile(String id) {
+        return gson.fromJson(obj(request("GET", "/v1/files/" + enc(id), null, null)).get("file"), StoredFile.class);
+    }
+
+    /** The file's bytes, exactly as uploaded. */
+    public byte[] fileContent(String id) {
+        return send("GET", "/v1/files/" + enc(id) + "/content", null, null);
+    }
+
+    public void deleteFile(String id) {
+        request("DELETE", "/v1/files/" + enc(id), null, null);
+    }
+
+    /**
+     * Reconcile two files already stored in the team, by id: {@code leftFileId} bills or claims. The run is kept:
+     * its id is {@code run_id} in the result. One analysis.
+     */
+    public ReconcileResult reconcileStored(String leftFileId, String rightFileId) {
+        return reconcileStored(Map.<String, Object>of("left_file_id", leftFileId, "right_file_id", rightFileId), null, null);
+    }
+
+    /** Reconcile stored files by id; TrueUp picks the pair. {@code model} (a saved model id) and {@code answers} may be null. */
+    public ReconcileResult reconcileStored(List<String> fileIds, String model, Answers answers) {
+        return reconcileStored(Map.<String, Object>of("file_ids", fileIds), model, answers);
+    }
+
+    private ReconcileResult reconcileStored(Map<String, Object> ids, String model, Answers answers) {
+        Map<String, Object> body = new LinkedHashMap<>(ids);
+        if (model != null) body.put("model", model);
+        if (answers != null) body.put("answers", answers);
+        return gson.fromJson(request("POST", "/v1/reconcile", gson.toJson(body).getBytes(StandardCharsets.UTF_8), "application/json"),
+            ReconcileResult.class);
+    }
+
+    /** One page of runs on stored files, newest first. {@code limit} 1-100 (null for 100); {@code before} a run id or null. */
+    public RunPage listRuns(Integer limit, String before) {
+        List<String> q = new ArrayList<>();
+        if (limit != null) q.add("limit=" + limit);
+        if (before != null) q.add("before=" + enc(before));
+        return gson.fromJson(request("GET", "/v1/runs" + (q.isEmpty() ? "" : "?" + String.join("&", q)), null, null), RunPage.class);
+    }
+
+    /** Every run, newest first, fetching page after page. */
+    public void forEachRun(Consumer<Models.Run> action) {
+        String before = null;
+        while (true) {
+            RunPage page = listRuns(100, before);
+            page.runs.forEach(action);
+            if (!page.has_more || page.runs.isEmpty()) return;
+            before = page.runs.get(page.runs.size() - 1).id;
+        }
+    }
+
+    /** One run and its full result, in the shape {@link #reconcile} returns. */
+    public RunDetail getRun(String id) {
+        return gson.fromJson(request("GET", "/v1/runs/" + enc(id), null, null), RunDetail.class);
+    }
+
+    /** Save what a run learned as a model. Returns the model id. {@code name} may be null. */
+    public String createModel(String runId, String name) {
+        Map<String, String> body = new LinkedHashMap<>();
+        body.put("run_id", runId);
+        if (name != null) body.put("name", name);
+        return obj(request("POST", "/v1/models", gson.toJson(body).getBytes(StandardCharsets.UTF_8), "application/json")).get("id").getAsString();
+    }
+
+    public List<Model> listModels() {
+        return list(request("GET", "/v1/models", null, null), "models", Model.class);
+    }
+
+    /** One saved model, including its weights. */
+    public Model getModel(String id) {
+        return gson.fromJson(obj(request("GET", "/v1/models/" + enc(id), null, null)).get("model"), Model.class);
+    }
+
+    public void deleteModel(String id) {
+        request("DELETE", "/v1/models/" + enc(id), null, null);
+    }
+
+    private static String enc(String s) {
+        return URLEncoder.encode(s, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
+    private static JsonObject obj(String json) {
+        return JsonParser.parseString(json).getAsJsonObject();
+    }
+
+    private <T> List<T> list(String json, String key, Class<T> type) {
+        List<T> out = new ArrayList<>();
+        for (JsonElement e : obj(json).getAsJsonArray(key)) out.add(gson.fromJson(e, type));
+        return out;
+    }
+
     // ---------------------------------------------------------------- transport
 
     private ReconcileResult upload(List<String> fields, List<Table> tables, ReconcileOptions o) {
+        return gson.fromJson(new String(multipart("/v1/reconcile", fields, tables, o), StandardCharsets.UTF_8), ReconcileResult.class);
+    }
+
+    private byte[] multipart(String path, List<String> fields, List<Table> tables, ReconcileOptions o) {
         String boundary = "----trueup" + Long.toHexString(RANDOM.nextLong()) + Long.toHexString(RANDOM.nextLong());
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         try {
@@ -162,8 +282,7 @@ public final class TrueUp {
         } catch (IOException e) {
             throw new TrueUpException.ConnectionException(e.getMessage());
         }
-        String json = request("POST", "/v1/reconcile", body.toByteArray(), "multipart/form-data; boundary=" + boundary);
-        return gson.fromJson(json, ReconcileResult.class);
+        return send("POST", path, body.toByteArray(), "multipart/form-data; boundary=" + boundary);
     }
 
     private static void field(ByteArrayOutputStream out, String boundary, String name, String value) throws IOException {
@@ -172,6 +291,10 @@ public final class TrueUp {
     }
 
     private String request(String method, String path, byte[] body, String contentType) {
+        return new String(send(method, path, body, contentType), StandardCharsets.UTF_8);
+    }
+
+    private byte[] send(String method, String path, byte[] body, String contentType) {
         for (int attempt = 0; ; attempt++) {
             HttpRequest.Builder req = HttpRequest.newBuilder(URI.create(baseUrl + path))
                 .timeout(timeout)
@@ -183,9 +306,9 @@ public final class TrueUp {
             } else {
                 req.method(method, HttpRequest.BodyPublishers.noBody());
             }
-            HttpResponse<String> res;
+            HttpResponse<byte[]> res;
             try {
-                res = http.send(req.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                res = http.send(req.build(), HttpResponse.BodyHandlers.ofByteArray());
             } catch (IOException e) {
                 if (attempt < maxRetries) {
                     sleep(backoff(attempt));
@@ -198,10 +321,11 @@ public final class TrueUp {
             }
             int status = res.statusCode();
             if (status >= 200 && status < 300) return res.body();
+            String text = new String(res.body(), StandardCharsets.UTF_8);
             String code = "http_" + status;
             String message = "HTTP " + status;
             try {
-                JsonObject err = JsonParser.parseString(res.body()).getAsJsonObject().getAsJsonObject("error");
+                JsonObject err = JsonParser.parseString(text).getAsJsonObject().getAsJsonObject("error");
                 if (err != null) {
                     if (err.has("code")) code = err.get("code").getAsString();
                     if (err.has("message")) message = err.get("message").getAsString();
@@ -209,7 +333,7 @@ public final class TrueUp {
             } catch (RuntimeException ignored) {
                 // not a JSON error body
             }
-            TrueUpException error = errorFor(status, code, message, res.body(), res.headers().firstValue("retry-after").orElse(null));
+            TrueUpException error = errorFor(status, code, message, text, res.headers().firstValue("retry-after").orElse(null));
             boolean retryable = error instanceof TrueUpException.RateLimitException || error instanceof TrueUpException.ServerException;
             if (retryable && attempt < maxRetries) {
                 Double ra = error instanceof TrueUpException.RateLimitException ? ((TrueUpException.RateLimitException) error).getRetryAfter() : null;

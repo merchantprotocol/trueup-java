@@ -74,6 +74,32 @@ trueup.reconcile(Table.file("statement.csv"), Table.file("receiving.csv"), new R
 
 Each call to `reconcile` or `reconcileFiles` counts as one analysis on your plan.
 
+## Stored files, runs and saved models
+
+Files uploaded to your team stay there (you'll also see them in the dashboard). Runs on stored files are kept, and what a run learned can be saved as a model:
+
+```java
+List<StoredFile> files = trueup.uploadFiles(Table.file("statement.csv"), Table.file("receiving.csv"));
+StoredFile statement = files.get(0), receiving = files.get(1);   // .rows, .columns, .roles ("Qty" -> "number", ...)
+
+ReconcileResult result = trueup.reconcileStored(statement.id, receiving.id);
+String modelId = trueup.createModel(result.run_id, "Acme statements");
+
+// Next month: apply what was learned.
+trueup.reconcileStored(List.of(aprilStatement.id, aprilReceiving.id), modelId, null);
+```
+
+| Method | Returns |
+|---|---|
+| `uploadFiles(Table...)`, `listFiles()`, `getFile(id)` | `StoredFile`: `id`, `name`, `rows`, `columns`, `roles` |
+| `fileContent(id)` | the bytes, exactly as uploaded |
+| `deleteFile(id)` | |
+| `reconcileStored(leftId, rightId)`, `reconcileStored(fileIds, model, answers)` | a result with `run_id` (one analysis) |
+| `listRuns(limit, before)` | `RunPage`: `runs`, `has_more`, newest first |
+| `forEachRun(action)` | every run, paging for you |
+| `getRun(id)` | `RunDetail`: `run`, `result` |
+| `createModel(runId, name)`, `listModels()`, `getModel(id)`, `deleteModel(id)` | `getModel` includes the `weights` |
+
 ## Findings
 
 | `kind` | Meaning |
@@ -121,7 +147,7 @@ TrueUp.builder()
 The tests run in Docker against the live API:
 
 ```bash
-export TRUEUP_API_KEY=tu_live_...   # a key for a test team (each run uses 2 analyses)
+export TRUEUP_API_KEY=tu_live_...   # a key for a test team (each run uses 4 analyses)
 just test                            # or: docker compose run --rm test
 ```
 
