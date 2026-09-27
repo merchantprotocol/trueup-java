@@ -49,6 +49,65 @@ public final class Models {
         public Details details;
         public List<String> inputs;
         public String engine;
+        /** The kept run, for {@link TrueUp#reconcileStored}; null for tables sent inline. */
+        public String run_id;
+    }
+
+    /** A file stored in the team (uploaded through the API or the dashboard). */
+    public static final class StoredFile {
+        public String id;
+        public String name;
+        public long size;
+        /** "table" or "document". */
+        public String kind;
+        public Integer rows;
+        public List<String> columns;
+        /** What TrueUp read each column as: "date", "number", "text", ... */
+        public Map<String, String> roles;
+        public String created_at;
+    }
+
+    /** A run on stored files, from the API or the dashboard. */
+    public static final class Run {
+        public String id;
+        public String analysis;
+        /** "done" or "failed". */
+        public String status;
+        /** "api" or "portal". */
+        public String via;
+        public List<String> inputs;
+        public Named model;
+        public String headline;
+        public Map<String, Double> stats;
+        /** How many findings the run has. */
+        public Integer findings;
+        public String error;
+        public String created_at;
+
+        public static final class Named { public String id; public String name; }
+    }
+
+    /** One page of runs, newest first. */
+    public static final class RunPage {
+        public List<Run> runs;
+        public boolean has_more;
+    }
+
+    /** One run and its full result (null if the run failed). */
+    public static final class RunDetail {
+        public Run run;
+        public ReconcileResult result;
+    }
+
+    /** A saved model: what a run learned, reusable on next month's files. */
+    public static final class Model {
+        public String id;
+        public String name;
+        public String analysis;
+        public String source_run_id;
+        public String created_at;
+        /** Only from {@link TrueUp#getModel}. */
+        public JsonObject weights;
     }
 
     /** The team, plan and key behind an API key. */
