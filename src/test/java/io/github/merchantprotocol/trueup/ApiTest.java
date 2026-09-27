@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import io.github.merchantprotocol.trueup.Models.MatchResult;
 import io.github.merchantprotocol.trueup.Models.ReconcileOptions;
 import io.github.merchantprotocol.trueup.Models.RunDetail;
 import io.github.merchantprotocol.trueup.Models.RunPage;
@@ -20,11 +21,12 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 /**
  * Integration tests against the live TrueUp API. Need TRUEUP_API_KEY (and optionally TRUEUP_BASE_URL).
- * Each full run uses 4 analyses. Run in Docker: `just test` (or `docker compose run --rm test`).
+ * Each full run uses 6 analyses. Run in Docker: `just test` (or `docker compose run --rm test`).
  */
 class ApiTest {
     private static final Path FIXTURES = Path.of("src/test/resources/fixtures");
@@ -135,5 +137,19 @@ class ApiTest {
             tu.deleteFile(receiving.id);
         }
         assertThrows(TrueUpException.NotFoundException.class, () -> tu.getFile(statement.id));
+    }
+
+    @Test
+    void matchTwoListsThenReuseTheLearning() throws IOException {
+        assumeTrue(live(), "needs TRUEUP_API_KEY");
+        TrueUp tu = TrueUp.builder().build();
+        List<List<String>> want = List.of(List.of("1", "1"), List.of("2", "2"), List.of("3", "3"), List.of("4", "5"));
+        MatchResult result = tu.match(Table.file(FIXTURES.resolve("invoice.csv")), Table.file(FIXTURES.resolve("catalog.csv")));
+        assertEquals("match", result.analysis);
+        assertEquals(want, result.details.pairs.stream().map(p -> List.of((String) p.get(0), (String) p.get(1))).collect(Collectors.toList()));
+        assertEquals(List.of("5"), result.findings.stream().filter(f -> f.kind.equals("only_left")).map(f -> f.subject).collect(Collectors.toList()));
+        MatchResult again = tu.match(Table.rows("invoice.csv", rows("invoice.csv")), Table.rows("catalog.csv", rows("catalog.csv")), result.details.weights);
+        assertEquals(want, again.details.pairs.stream().map(p -> List.of((String) p.get(0), (String) p.get(1))).collect(Collectors.toList()));
+        assertFalse(again.details.model.get("learned").getAsBoolean());
     }
 }

@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import io.github.merchantprotocol.trueup.Models.Account;
 import io.github.merchantprotocol.trueup.Models.Answers;
+import io.github.merchantprotocol.trueup.Models.MatchResult;
 import io.github.merchantprotocol.trueup.Models.Model;
 import io.github.merchantprotocol.trueup.Models.RunDetail;
 import io.github.merchantprotocol.trueup.Models.RunPage;
@@ -147,6 +148,47 @@ public final class TrueUp {
         List<String> fields = new ArrayList<>();
         for (int i = 0; i < files.size(); i++) fields.add("files");
         return upload(fields, files, options != null ? options : new ReconcileOptions());
+    }
+
+    // ---------------------------------------------------------------- match
+
+    /**
+     * Match two lists that describe the same things in different words (two catalogs, a price book and an invoice):
+     * each record on {@code left} (the list to go through) is paired with its counterpart on {@code right} (the list
+     * to search), or reported as having none. One analysis.
+     */
+    public MatchResult match(Table left, Table right) {
+        return match(left, right, null);
+    }
+
+    /** Match two lists, applying {@code weights} (details.weights of an earlier match) instead of learning. */
+    public MatchResult match(Table left, Table right, JsonObject weights) {
+        if (left.isRows() && right.isRows()) {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("left", Map.of("name", left.getName(), "rows", left.getRows()));
+            body.put("right", Map.of("name", right.getName(), "rows", right.getRows()));
+            if (weights != null) body.put("weights", weights);
+            return gson.fromJson(request("POST", "/v1/match", gson.toJson(body).getBytes(StandardCharsets.UTF_8), "application/json"), MatchResult.class);
+        }
+        byte[] json = multipart("/v1/match", List.of("left", "right"), List.of(left, right), new ReconcileOptions().weights(weights));
+        return gson.fromJson(new String(json, StandardCharsets.UTF_8), MatchResult.class);
+    }
+
+    /** Send two or more lists; TrueUp picks the pair to match and puts the shorter on the left. One analysis. */
+    public MatchResult matchFiles(List<Table> files, JsonObject weights) {
+        List<String> fields = new ArrayList<>();
+        for (int i = 0; i < files.size(); i++) fields.add("files");
+        byte[] json = multipart("/v1/match", fields, files, new ReconcileOptions().weights(weights));
+        return gson.fromJson(new String(json, StandardCharsets.UTF_8), MatchResult.class);
+    }
+
+    /** Match two lists already stored in the team, by id. {@code model} (a saved match model id) may be null. The run is kept. */
+    public MatchResult matchStored(String leftFileId, String rightFileId, String model) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("left_file_id", leftFileId);
+        body.put("right_file_id", rightFileId);
+        if (model != null) body.put("model", model);
+        return gson.fromJson(request("POST", "/v1/match", gson.toJson(body).getBytes(StandardCharsets.UTF_8), "application/json"), MatchResult.class);
     }
 
     // ---------------------------------------------------------------- stored files, runs, saved models

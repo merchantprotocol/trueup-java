@@ -53,6 +53,29 @@ public final class Models {
         public String run_id;
     }
 
+    /** The answer to a match call. Findings' kind: match, unsure_match (a person should check), only_left, only_right. */
+    public static final class MatchResult {
+        public String analysis;
+        public String title;
+        public String headline;
+        public Map<String, Double> stats;
+        public List<Finding> findings;
+        public MatchDetails details;
+        public List<String> inputs;
+        public String engine;
+        /** The kept run, for {@link TrueUp#matchStored}; null otherwise. */
+        public String run_id;
+    }
+
+    /** How the columns lined up, every pair ([left id, right id, confidence]), and what was learned. */
+    public static final class MatchDetails {
+        public JsonObject columns;
+        public List<List<Object>> pairs;
+        public JsonObject model;
+        /** Pass back as the {@code weights} of {@link TrueUp#match} to match the same way without learning. */
+        public JsonObject weights;
+    }
+
     /** A file stored in the team (uploaded through the API or the dashboard). */
     public static final class StoredFile {
         public String id;
