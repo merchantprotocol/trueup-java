@@ -102,6 +102,29 @@ public final class Models {
         public static final class Law { public String scope; public String law; public String held; }
     }
 
+    /** The answer to an estimate call: the new job priced part by part (findings of kind priced_line), with an 80% range. */
+    public static final class EstimateResult {
+        public String analysis;
+        public String title;
+        public String headline;
+        /** total, low, high (the 80% range), categories priced, past estimates, ... */
+        public Map<String, Double> stats;
+        public List<Finding> findings;
+        public EstimateDetails details;
+        public List<String> inputs;
+        public String engine;
+        public String run_id;
+    }
+
+    /** The job's scope and total, and what was learned. */
+    public static final class EstimateDetails {
+        public List<JsonObject> scope;
+        public JsonObject total;
+        public JsonObject model;
+        /** The trade and its labeled past estimates: pass back to {@link TrueUp#estimate(List, JsonObject)} with just a request. */
+        public JsonObject weights;
+    }
+
     /** A file stored in the team (uploaded through the API or the dashboard). */
     public static final class StoredFile {
         public String id;
