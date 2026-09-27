@@ -8,6 +8,7 @@ import com.google.gson.JsonParser;
 import io.github.merchantprotocol.trueup.Models.Account;
 import io.github.merchantprotocol.trueup.Models.Answers;
 import io.github.merchantprotocol.trueup.Models.AuditResult;
+import io.github.merchantprotocol.trueup.Models.EstimateResult;
 import io.github.merchantprotocol.trueup.Models.MatchResult;
 import io.github.merchantprotocol.trueup.Models.Model;
 import io.github.merchantprotocol.trueup.Models.RunDetail;
@@ -218,6 +219,33 @@ public final class TrueUp {
         body.put("file_ids", fileIds);
         if (model != null) body.put("model", model);
         return gson.fromJson(request("POST", "/v1/audit", gson.toJson(body).getBytes(StandardCharsets.UTF_8), "application/json"), AuditResult.class);
+    }
+
+    // ---------------------------------------------------------------- estimate
+
+    /**
+     * Price a new job from past estimates: a domain file for the trade (.tu), at least 3 past estimates in any format,
+     * and one request describing the new job. One analysis.
+     */
+    public EstimateResult estimate(List<Table> files) {
+        return estimate(files, null);
+    }
+
+    /** Price a request with {@code weights} (details.weights of an earlier estimate) instead of sending the history. */
+    public EstimateResult estimate(List<Table> files, JsonObject weights) {
+        if (files.isEmpty()) throw new TrueUpException.InvalidRequestException("Pass the domain file, past estimates and the request.", 0, "invalid_request", null);
+        List<String> fields = new ArrayList<>();
+        for (int i = 0; i < files.size(); i++) fields.add("files");
+        byte[] json = multipart("/v1/estimate", fields, files, new ReconcileOptions().weights(weights));
+        return gson.fromJson(new String(json, StandardCharsets.UTF_8), EstimateResult.class);
+    }
+
+    /** Price from files already stored in the team, by id. {@code model} (a saved estimate model id) may be null. */
+    public EstimateResult estimateStored(List<String> fileIds, String model) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("file_ids", fileIds);
+        if (model != null) body.put("model", model);
+        return gson.fromJson(request("POST", "/v1/estimate", gson.toJson(body).getBytes(StandardCharsets.UTF_8), "application/json"), EstimateResult.class);
     }
 
     // ---------------------------------------------------------------- stored files, runs, saved models

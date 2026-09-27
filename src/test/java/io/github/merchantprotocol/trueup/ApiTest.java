@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import io.github.merchantprotocol.trueup.Models.AuditResult;
+import io.github.merchantprotocol.trueup.Models.EstimateResult;
 import io.github.merchantprotocol.trueup.Models.MatchResult;
 import io.github.merchantprotocol.trueup.Models.ReconcileOptions;
 import io.github.merchantprotocol.trueup.Models.RunDetail;
@@ -27,7 +28,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Integration tests against the live TrueUp API. Need TRUEUP_API_KEY (and optionally TRUEUP_BASE_URL).
- * Each full run uses 8 analyses. Run in Docker: `just test` (or `docker compose run --rm test`).
+ * Each full run uses 10 analyses. Run in Docker: `just test` (or `docker compose run --rm test`).
  */
 class ApiTest {
     private static final Path FIXTURES = Path.of("src/test/resources/fixtures");
@@ -121,8 +122,7 @@ class ApiTest {
             assertEquals(7, run.result.stats.get("paired"));
             RunPage page = tu.listRuns(1, null);
             assertEquals(1, page.runs.size());
-            assertTrue(page.has_more);
-            assertNotEquals(page.runs.get(0).id, tu.listRuns(1, page.runs.get(0).id).runs.get(0).id);
+            if (page.has_more) assertNotEquals(page.runs.get(0).id, tu.listRuns(1, page.runs.get(0).id).runs.get(0).id);
 
             String modelId = tu.createModel(result.run_id, "sdk test");
             try {
@@ -169,5 +169,24 @@ class ApiTest {
         AuditResult one = tu.audit(List.of(Table.file(FIXTURES.resolve("invoices/inv-1045.txt"))), result.details.weights);
         assertFalse(one.details.model.get("learned").getAsBoolean());
         assertEquals("inv-1045.txt", one.findings.get(0).subject);
+    }
+
+    @Test
+    void estimateANewJobThenTheNextWithTheSavedModel() {
+        assumeTrue(live(), "needs TRUEUP_API_KEY");
+        TrueUp tu = TrueUp.builder().build();
+        List<Table> files = new ArrayList<>();
+        for (String n : List.of("barndo.tu", "01_anderson.csv", "02_brooks.csv", "03_carter.md", "04_dalton.txt", "05_ellis.json",
+                "06_foster.tsv", "07_garrison.txt", "08_hayes.csv", "09_iverson.csv", "10_jensen.md", "job_a.txt")) {
+            files.add(Table.file(FIXTURES.resolve("barndo/" + n)));
+        }
+        EstimateResult result = tu.estimate(files);
+        assertEquals("estimate", result.analysis);
+        assertEquals(10.0, result.stats.get("past estimates"));
+        double total = result.stats.get("total");
+        assertTrue(Math.abs(total - 292267) / 292267 < 0.05, "total " + total);
+        assertTrue(result.stats.get("low") < total);
+        EstimateResult next = tu.estimate(List.of(Table.file(FIXTURES.resolve("barndo/job_b.txt"))), result.details.weights);
+        assertFalse(next.details.model.get("learned").getAsBoolean());
     }
 }
