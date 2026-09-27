@@ -76,6 +76,32 @@ public final class Models {
         public JsonObject weights;
     }
 
+    /**
+     * The answer to an audit call: documents (analysis "audit") or a table's rows ("table-audit"). Findings' kind:
+     * arithmetic (the numbers break a law; amount is how far off) or duplicate_row.
+     */
+    public static final class AuditResult {
+        public String analysis;
+        public String title;
+        public String headline;
+        public Map<String, Double> stats;
+        public List<Finding> findings;
+        public AuditDetails details;
+        public List<String> inputs;
+        public String engine;
+        public String run_id;
+    }
+
+    /** The laws learned (or applied), and the weights to apply them again. */
+    public static final class AuditDetails {
+        public List<Law> laws;
+        public JsonObject model;
+        /** Pass back to {@link TrueUp#audit(List, JsonObject)} to check new documents against the same laws. */
+        public JsonObject weights;
+
+        public static final class Law { public String scope; public String law; public String held; }
+    }
+
     /** A file stored in the team (uploaded through the API or the dashboard). */
     public static final class StoredFile {
         public String id;

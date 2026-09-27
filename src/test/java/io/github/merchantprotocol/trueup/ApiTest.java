@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import io.github.merchantprotocol.trueup.Models.AuditResult;
 import io.github.merchantprotocol.trueup.Models.MatchResult;
 import io.github.merchantprotocol.trueup.Models.ReconcileOptions;
 import io.github.merchantprotocol.trueup.Models.RunDetail;
@@ -26,7 +27,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Integration tests against the live TrueUp API. Need TRUEUP_API_KEY (and optionally TRUEUP_BASE_URL).
- * Each full run uses 6 analyses. Run in Docker: `just test` (or `docker compose run --rm test`).
+ * Each full run uses 8 analyses. Run in Docker: `just test` (or `docker compose run --rm test`).
  */
 class ApiTest {
     private static final Path FIXTURES = Path.of("src/test/resources/fixtures");
@@ -151,5 +152,22 @@ class ApiTest {
         MatchResult again = tu.match(Table.rows("invoice.csv", rows("invoice.csv")), Table.rows("catalog.csv", rows("catalog.csv")), result.details.weights);
         assertEquals(want, again.details.pairs.stream().map(p -> List.of((String) p.get(0), (String) p.get(1))).collect(Collectors.toList()));
         assertFalse(again.details.model.get("learned").getAsBoolean());
+    }
+
+    @Test
+    void auditSixInvoicesThenOneAgainstTheSavedLaws() {
+        assumeTrue(live(), "needs TRUEUP_API_KEY");
+        TrueUp tu = TrueUp.builder().build();
+        List<Table> files = new ArrayList<>();
+        for (int i = 1; i <= 6; i++) files.add(Table.file(FIXTURES.resolve("invoices/inv-104" + i + ".txt")));
+        AuditResult result = tu.audit(files);
+        assertEquals("audit", result.analysis);
+        assertEquals(1, result.findings.size());
+        assertEquals("inv-1045.txt", result.findings.get(0).subject);
+        assertEquals(200.0, result.findings.get(0).amount);
+        assertTrue(result.details.laws.stream().anyMatch(l -> l.law.equals("subtotal + tax amount = total")));
+        AuditResult one = tu.audit(List.of(Table.file(FIXTURES.resolve("invoices/inv-1045.txt"))), result.details.weights);
+        assertFalse(one.details.model.get("learned").getAsBoolean());
+        assertEquals("inv-1045.txt", one.findings.get(0).subject);
     }
 }

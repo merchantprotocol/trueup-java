@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import io.github.merchantprotocol.trueup.Models.Account;
 import io.github.merchantprotocol.trueup.Models.Answers;
+import io.github.merchantprotocol.trueup.Models.AuditResult;
 import io.github.merchantprotocol.trueup.Models.MatchResult;
 import io.github.merchantprotocol.trueup.Models.Model;
 import io.github.merchantprotocol.trueup.Models.RunDetail;
@@ -189,6 +190,34 @@ public final class TrueUp {
         body.put("right_file_id", rightFileId);
         if (model != null) body.put("model", model);
         return gson.fromJson(request("POST", "/v1/match", gson.toJson(body).getBytes(StandardCharsets.UTF_8), "application/json"), MatchResult.class);
+    }
+
+    // ---------------------------------------------------------------- audit
+
+    /**
+     * Find what doesn't add up. Text documents (invoices, statements, 4 or more of a kind): TrueUp learns the
+     * arithmetic each kind obeys and flags the ones that break it. One table: the same for its rows, plus repeated
+     * rows. One analysis.
+     */
+    public AuditResult audit(List<Table> files) {
+        return audit(files, null);
+    }
+
+    /** Audit, applying {@code weights} (details.weights of an earlier audit) instead of learning. */
+    public AuditResult audit(List<Table> files, JsonObject weights) {
+        if (files.isEmpty()) throw new TrueUpException.InvalidRequestException("Pass the documents (or one table) to audit.", 0, "invalid_request", null);
+        List<String> fields = new ArrayList<>();
+        for (int i = 0; i < files.size(); i++) fields.add("files");
+        byte[] json = multipart("/v1/audit", fields, files, new ReconcileOptions().weights(weights));
+        return gson.fromJson(new String(json, StandardCharsets.UTF_8), AuditResult.class);
+    }
+
+    /** Audit files already stored in the team, by id. {@code model} (a saved audit model id) may be null. The run is kept. */
+    public AuditResult auditStored(List<String> fileIds, String model) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("file_ids", fileIds);
+        if (model != null) body.put("model", model);
+        return gson.fromJson(request("POST", "/v1/audit", gson.toJson(body).getBytes(StandardCharsets.UTF_8), "application/json"), AuditResult.class);
     }
 
     // ---------------------------------------------------------------- stored files, runs, saved models
